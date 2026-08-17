@@ -63,27 +63,33 @@ def main() -> int:
     n_src = len(list(SRC.glob("*.parquet")))
     print(f"  nguồn : {SRC}  ({n_src:,} file)")
 
-    # TODO(nhiệm vụ 4): hiện thực khung COPY ... TO ... ở phần docstring.
-    #
-    #   con.execute(f"""
-    #       copy (
-    #           select * from read_parquet('{SRC}/*.parquet')
-    #           order by ...
-    #       ) to '{DST}' (
-    #           format parquet,
-    #           partition_by (...),
-    #           overwrite_or_ignore,
-    #           row_group_size ...
-    #       )
-    #   """)
-    #
-    # Sau đó kiểm tra không mất hàng nào:
-    #
-    #   assert <số row dataset cũ> == <số row dataset mới>
+    if DST.exists():
+        import shutil
+        shutil.rmtree(DST)
 
-    print("\n  tools/compact.py chưa được hiện thực — đây là nhiệm vụ 4.")
-    print("  Mở file này, đọc phần KHUNG THỰC HIỆN ở đầu file và điền vào TODO.")
-    print("  Hướng dẫn từng bước: GUIDE.md mục 4.\n")
+    con.execute(f"""
+        copy (
+            select
+                *,
+                cast(event_time as date) as event_date
+            from read_parquet('{SRC}/*.parquet')
+            order by customer_name, event_time
+        ) to '{DST}' (
+            format parquet,
+            partition_by (event_date),
+            overwrite_or_ignore,
+            row_group_size 10000
+        )
+    """)
+
+    old_cnt = con.execute(f"select count(*) from read_parquet('{SRC}/*.parquet')").fetchone()[0]
+    new_cnt = con.execute(f"select count(*) from read_parquet('{DST}/**/*.parquet')").fetchone()[0]
+    n_dst = len(list(DST.glob("**/*.parquet")))
+    print(f"  đích  : {DST}  ({n_dst:,} file, cũ: {old_cnt:,} hàng, mới: {new_cnt:,} hàng)")
+    assert old_cnt == new_cnt, f"Mất hàng: {old_cnt} != {new_cnt}"
+
+    print("  [compact] đã hoàn tất tái cấu trúc Parquet dataset.")
+    con.close()
     return 0
 
 
